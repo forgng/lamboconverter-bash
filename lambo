@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+
+#part of the code is taken from the awesome https://github.com/alexanderepstein/Bash-Snippets
+readonly CURRENT_VERSION="0.0.1"
+readonly LAMBO_PRICE=393695
+configuredPython=""
+
+usage()
+{
+  cat <<EOF
+########################
+##                    ##
+##   LamboConverter   ##
+##                    ##
+########################
+
+Description: Convert your favourite crypto to Lamborghini. https://lamboconverter.com
+Usage: lambo [CryptoSymbol] [-i]
+Examples:
+   lambo BTC (price of a Lamborghini in Bitcoin)
+   lambo btc -i (price of Bitcoin in Lamborghini)
+EOF
+}
+
+getConfiguredPython()
+{
+  if  command -v python3 &>/dev/null; then
+    configuredPython="python3"
+  elif command -v python &>/dev/null; then
+    configuredPython="python"
+  else
+    echo "Error: This tool requires python to be installed."
+    return 1
+  fi
+}
+
+if [[ $(uname) != "Darwin" ]]; then
+  python()
+  {
+    case "$configuredPython" in
+      python3) python3 "$@" ;;
+      python)  python "$@" ;;
+    esac
+  }
+fi
+getConfiguredClient()
+{
+  if  command -v curl &>/dev/null; then
+    configuredClient="curl"
+  elif command -v wget &>/dev/null; then
+    configuredClient="wget"
+  elif command -v http &>/dev/null; then
+    configuredClient="httpie"
+  elif command -v fetch &>/dev/null; then
+    configuredClient="fetch"
+  else
+    echo "Error: This tool reqires either curl, wget, httpie or fetch to be installed." >&2
+    return 1
+  fi
+}
+
+
+
+
+## Allows to call the users configured client without if statements everywhere
+httpGet()
+{
+  case "$configuredClient" in
+    curl)  curl -A curl -s "$@" ;;
+    wget)  wget -qO- "$@" ;;
+    httpie) http -b GET "$@" ;;
+    fetch) fetch -q "$@" ;;
+  esac
+}
+
+checkInternet()
+{
+  httpGet github.com > /dev/null 2>&1 || { echo "Error: no active internet connection" >&2; return 1; } # query github with a get request
+}
+
+compute_conversion() {
+    python -c "print (float($1)/float($2))" > /dev/null 2>&1 || { echo "Something went wrong with the conversion"; exit 1; }
+    change_test=$(echo | python -c "print (float($1)/float($2))")
+}
+get_price() {
+    checkInternet || exit 1
+    ticker=$(echo $1 | awk '{print toupper($0)}')
+    echo "retrieving data..."
+    local resp=$(httpGet "https://min-api.cryptocompare.com/data/price?fsym=$ticker&tsyms=USD")
+    echo $resp | python -c "import sys, json; print(json.load(sys.stdin)['USD'])" > /dev/null 2>&1 || { echo "Not a valid crypto symbol"; exit 1; } 
+    local price=$(echo $resp | python -c "import sys, json; print(json.load(sys.stdin)['USD'])")
+    if [ -z "$price" ]; then
+        echo "something went wrong with the price"
+        exit 1
+    elif [ "$2" == "-i" ] ; then
+        compute_conversion $price $LAMBO_PRICE
+        echo "1 $1 = $change_test Lamborghini"
+    else
+        compute_conversion $LAMBO_PRICE $price
+        echo "1 Lamborghini = $change_test $1"
+    fi
+}
+
+if [[ $(uname) != "Darwin" ]]; then getConfiguredPython || exit 1; fi
+getConfiguredClient || exit 1
+
+if [[ $1 == "help" ]]; then
+    usage
+    exit 0
+elif [[ $# == "0" ]]; then
+    usage
+    exit 0
+fi
+
+while getopts ":h" opt; do
+    case ${opt} in
+        h )
+        usage
+        exit 0
+        ;;
+    \? )
+        echo "Invalid Option: -$OPTARG" 1>&2
+        exit 1
+        ;;
+    esac
+done
+shift $((OPTIND -1))
+get_price $1 $2
+
+
